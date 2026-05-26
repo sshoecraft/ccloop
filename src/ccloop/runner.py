@@ -168,21 +168,42 @@ IMPORTANT — this run has explicit success criteria:
 {criteria}
 <END CRITERIA>
 
-The Stop hook is active. Every time you try to end a turn, it will ask
-you the question: HAVE YOU MET THE CRITERIA? If YES, write YES to the
-marker file:
+These criteria are your ONLY exit condition.
+
+YOU HAVE UNLIMITED CONTEXT AND UNLIMITED SESSIONS.
+
+ccloop is wrapping your session. When your context fills, ccloop will:
+  1. summarize this session's transcript into a resume file
+  2. spawn a fresh Claude Code session with that summary as its prompt
+  3. pass through the same criteria so the new session continues the work
+The new session inherits the project state, the criteria, and a digest
+of what you've already learned and tried. You can take as many sessions
+as the problem needs. There is no session cap, no turn cap, no time cap.
+
+Because of this, NEVER:
+
+- propose to "kill the wrapper", "end the session", or "exit so a fresh
+  session can take over". The wrapper handles relay automatically.
+- ask the user "what should I do?" or offer them options. This is
+  autonomous — there is no human in the loop.
+- claim the work "requires a fresh session", "needs multi-day effort
+  outside this session's scope", or "is architectural and out of scope".
+  Session scope is irrelevant; the work is in scope by definition.
+- write YES dishonestly to escape the loop. The criteria are checked;
+  lying wastes downstream work.
+
+The Stop hook is active. Every time you try to end a turn it asks:
+HAVE YOU MET THE CRITERIA? If YES, write YES to the marker:
 
     echo YES > "{marker}"
 
-If NO, keep working. *** DO NOT CONCERN YOURSELF WITH CONTEXT OR SESSION
-LIMITS *** — the wrapper will hand off to a fresh session automatically
-when context fills. Your job is to meet the criteria above; the wrapper
-handles everything else.
+Only on cited, third-party-verifiable evidence that EVERY criterion is
+met.
 
-Do not write YES to the marker based on judgment, partial progress, or
-'good enough'. Only on cited, third-party-verifiable evidence that every
-criterion is met. Do not pause to ask clarifying questions — make
-reasonable choices and proceed.
+If NO, keep working. Pick a new angle: read more of the code, write a
+targeted diagnostic, generate a minimal reproducer, consult any external
+analysis tools available to you, form a new hypothesis and test it.
+Then return to the criteria.
 
 ---
 

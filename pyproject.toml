@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ccloop"
-version = "0.2.1"
+version = "0.2.2"
 description = "Relay-loop wrapper for Claude Code: hands work between fresh sessions as context fills."
 readme = "README.md"
 requires-python = ">=3.9"
