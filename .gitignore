@@ -1,0 +1,24 @@
+# ccloop runtime state (per-run state generated under a project)
+.ccloop/runs/
+
+# python build / install
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# legacy bash archive (pre-0.2 shell implementation)
+legacy-bash.tar.gz
+
+# macOS noise (NFS-generated resource forks)
+.DS_Store
+._*
+
+# editor swap
+*.swp
+*~
+
+# local session/dev journal
+state.md
