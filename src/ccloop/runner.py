@@ -200,6 +200,11 @@ def _build_prompt(resume_file, iteration):
 
 
 def _build_command(cfg, session_id, prompt_text, interactive=False):
+    # Non-interactive: the prompt is fed via stdin (see run_session), keeping
+    # it out of /proc/<pid>/cmdline so `pgrep -f <task-keyword>` from inside
+    # the session can't match its own parent. Interactive mode inherits the
+    # TTY and has no stdin path for the seed prompt, so we still pass it on
+    # argv there — a known exposure, accepted because a human is driving.
     cmd = [cfg["claude_bin"]]
     if not interactive:
         cmd.append("-p")
@@ -218,7 +223,8 @@ def _build_command(cfg, session_id, prompt_text, interactive=False):
         cmd += ["--max-budget-usd", cfg["max_budget"]]
     if cfg["extra_args"]:
         cmd += cfg["extra_args"].split()
-    cmd.append(prompt_text)
+    if interactive:
+        cmd.append(prompt_text)
     return cmd
 
 
@@ -248,12 +254,15 @@ def _session_env(cfg, run_id, session_id, resume_file, transcript_file):
     return env
 
 
-def run_session(cmd, env, out_path, timeout):
+def run_session(cmd, env, out_path, timeout, prompt_text):
     """Spawn a session, stream output live, return (exit_code, formatter).
 
     The child runs in its own process group; SIGINT kills the whole group
     (escalating to SIGKILL on a second Ctrl-C) and re-raises
     KeyboardInterrupt so the loop can stop and preserve state.
+
+    ``prompt_text`` is written to the child's stdin instead of appearing on
+    argv, so the task description stays out of /proc/<pid>/cmdline.
     """
     fmt = stream.StreamFormatter()
     interrupted = {"count": 0}
@@ -261,7 +270,7 @@ def run_session(cmd, env, out_path, timeout):
     with open(out_path, "w", encoding="utf-8") as raw_log:
         proc = subprocess.Popen(
             cmd,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -269,6 +278,11 @@ def run_session(cmd, env, out_path, timeout):
             start_new_session=True,
             env=env,
         )
+        try:
+            proc.stdin.write(prompt_text)
+            proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
         try:
             pgid = os.getpgid(proc.pid)
         except ProcessLookupError:
@@ -506,7 +520,8 @@ def loop(run_id, run_dir, ensure_hook=True, interactive=False):
                 )
             else:
                 exit_code, fmt = run_session(
-                    cmd, env, run_dir / f"session-{iteration}.out", cfg["session_timeout"]
+                    cmd, env, run_dir / f"session-{iteration}.out",
+                    cfg["session_timeout"], prompt_text,
                 )
                 # Death-loop guard 1: the fed prompt exceeded the model window.
                 if fmt.saw_prompt_too_long:

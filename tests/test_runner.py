@@ -25,6 +25,9 @@ def test_build_command_headless_has_streamjson():
     cmd = runner._build_command(cfg, "sid", "the prompt", interactive=False)
     assert "-p" in cmd
     assert "stream-json" in cmd
+    # Prompt must not appear on argv in headless mode — it is piped via stdin
+    # so it stays out of /proc/<pid>/cmdline and out of `pgrep -f` matches.
+    assert "the prompt" not in cmd
 
 
 def _write_cache(tmpdir, session_id, pct):
