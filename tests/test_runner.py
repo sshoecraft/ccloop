@@ -11,23 +11,33 @@ def no_sleep(monkeypatch):
     monkeypatch.setattr(runner.time, "sleep", lambda *a, **k: None)
 
 
-def test_build_command_interactive_omits_print_and_streamjson():
+def test_build_command_interactive_omits_print_and_streamjson(tmp_path):
     cfg = runner._config()
-    cmd = runner._build_command(cfg, "sid", "the prompt", interactive=True)
+    prompt_file = tmp_path / "prompt.md"
+    prompt_file.write_text("the prompt")
+    cmd = runner._build_command(cfg, "sid", prompt_file=prompt_file, interactive=True)
     assert "-p" not in cmd
     assert "--output-format" not in cmd
     assert "--session-id" in cmd and "sid" in cmd
-    assert cmd[-1] == "the prompt"
+    # Prompt injected via file, not on argv; "begin" triggers the session
+    assert "--append-system-prompt-file" in cmd
+    assert str(prompt_file) in cmd
+    assert "the prompt" not in cmd
+    assert cmd[-1] == "begin"
 
 
-def test_build_command_headless_has_streamjson():
+def test_build_command_headless_has_streamjson(tmp_path):
     cfg = runner._config()
-    cmd = runner._build_command(cfg, "sid", "the prompt", interactive=False)
+    prompt_file = tmp_path / "prompt.md"
+    prompt_file.write_text("the prompt")
+    cmd = runner._build_command(cfg, "sid", prompt_file=prompt_file, interactive=False)
     assert "-p" in cmd
     assert "stream-json" in cmd
-    # Prompt must not appear on argv in headless mode — it is piped via stdin
-    # so it stays out of /proc/<pid>/cmdline and out of `pgrep -f` matches.
+    # Prompt content must not appear on argv — it is loaded via
+    # --append-system-prompt-file so it stays out of /proc/<pid>/cmdline.
     assert "the prompt" not in cmd
+    assert "--append-system-prompt-file" in cmd
+    assert str(prompt_file) in cmd
 
 
 def _write_cache(tmpdir, session_id, pct):

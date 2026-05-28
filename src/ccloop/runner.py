@@ -220,12 +220,10 @@ def _build_prompt(resume_file, iteration):
     return PREAMBLE_LEGACY.format(iter=iteration) + body
 
 
-def _build_command(cfg, session_id, prompt_text, interactive=False):
-    # Non-interactive: the prompt is fed via stdin (see run_session), keeping
-    # it out of /proc/<pid>/cmdline so `pgrep -f <task-keyword>` from inside
-    # the session can't match its own parent. Interactive mode inherits the
-    # TTY and has no stdin path for the seed prompt, so we still pass it on
-    # argv there — a known exposure, accepted because a human is driving.
+def _build_command(cfg, session_id, prompt_file=None, interactive=False):
+    # The prompt is always injected via --append-system-prompt-file, keeping it
+    # out of /proc/<pid>/cmdline so `pgrep -f` or `pkill -f` from inside the
+    # session can't match its own parent wrapper.
     cmd = [cfg["claude_bin"]]
     if not interactive:
         cmd.append("-p")
@@ -234,6 +232,8 @@ def _build_command(cfg, session_id, prompt_text, interactive=False):
         # stream-json is parsed for live output; the interactive TUI renders
         # itself, so we leave its output untouched.
         cmd += ["--verbose", "--output-format", "stream-json"]
+    if prompt_file:
+        cmd += ["--append-system-prompt-file", str(prompt_file)]
     if cfg["model"]:
         cmd += ["--model", cfg["model"]]
     if cfg["effort"]:
@@ -245,7 +245,9 @@ def _build_command(cfg, session_id, prompt_text, interactive=False):
     if cfg["extra_args"]:
         cmd += cfg["extra_args"].split()
     if interactive:
-        cmd.append(prompt_text)
+        # Interactive mode needs a minimal prompt on argv to start the session;
+        # the real task comes from --append-system-prompt-file.
+        cmd.append("begin")
     return cmd
 
 
@@ -275,15 +277,16 @@ def _session_env(cfg, run_id, session_id, resume_file, transcript_file):
     return env
 
 
-def run_session(cmd, env, out_path, timeout, prompt_text):
+def run_session(cmd, env, out_path, timeout):
     """Spawn a session, stream output live, return (exit_code, formatter).
 
     The child runs in its own process group; SIGINT kills the whole group
     (escalating to SIGKILL on a second Ctrl-C) and re-raises
     KeyboardInterrupt so the loop can stop and preserve state.
 
-    ``prompt_text`` is written to the child's stdin instead of appearing on
-    argv, so the task description stays out of /proc/<pid>/cmdline.
+    The real prompt is injected via --append-system-prompt-file (in cmd).
+    We pipe a minimal "begin" via stdin so -p runs non-interactively —
+    nothing meaningful for pgrep/pkill to match.
     """
     fmt = stream.StreamFormatter()
     interrupted = {"count": 0}
@@ -300,7 +303,7 @@ def run_session(cmd, env, out_path, timeout, prompt_text):
             env=env,
         )
         try:
-            proc.stdin.write(prompt_text)
+            proc.stdin.write("begin")
             proc.stdin.close()
         except (BrokenPipeError, OSError):
             pass
@@ -528,8 +531,13 @@ def loop(run_id, run_dir, ensure_hook=True, interactive=False):
                 fh.write(session_id + "\n")
 
             prompt_text = _build_prompt(resume_file, iteration)
-            (run_dir / f"session-{iteration}.prompt").write_text(prompt_text, encoding="utf-8")
-            cmd = _build_command(cfg, session_id, prompt_text, interactive=interactive)
+            prompt_file = run_dir / f"session-{iteration}.prompt"
+            prompt_file.write_text(prompt_text, encoding="utf-8")
+            cmd = _build_command(
+                cfg, session_id,
+                prompt_file=prompt_file,
+                interactive=interactive,
+            )
             env = _session_env(cfg, run_id, session_id, resume_file, transcript_file)
 
             start = time.time()
@@ -542,7 +550,7 @@ def loop(run_id, run_dir, ensure_hook=True, interactive=False):
             else:
                 exit_code, fmt = run_session(
                     cmd, env, run_dir / f"session-{iteration}.out",
-                    cfg["session_timeout"], prompt_text,
+                    cfg["session_timeout"],
                 )
                 # Death-loop guard 1: the fed prompt exceeded the model window.
                 if fmt.saw_prompt_too_long:
